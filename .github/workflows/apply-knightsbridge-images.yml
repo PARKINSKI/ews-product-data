@@ -1,0 +1,51 @@
+name: Apply Knightsbridge image mapping
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - knightsbridge-image-map.json
+
+permissions:
+  contents: write
+
+jobs:
+  remap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Remap exact product images
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const products = JSON.parse(fs.readFileSync('ews-products.json', 'utf8'));
+          const imageMap = JSON.parse(fs.readFileSync('knightsbridge-image-map.json', 'utf8'));
+          let remapped = 0;
+          for (const product of products) {
+            if (product.brand !== 'Knightsbridge') continue;
+            const imageFile = imageMap[product.code];
+            if (!imageFile) continue;
+            product.imageFile = imageFile;
+            product.image = `https://raw.githubusercontent.com/PARKINSKI/ews-product-data/main/${imageFile}`;
+            product.imageMapping = 'knightsbridge-2026-exact-product';
+            remapped += 1;
+          }
+          if (remapped !== 3153) {
+            throw new Error(`Expected 3153 mappings, got ${remapped}`);
+          }
+          fs.writeFileSync('ews-products.json', `${JSON.stringify(products, null, 2)}\n`);
+          NODE
+      - name: Validate and commit
+        run: |
+          jq empty ews-products.json
+          test "$(jq '[.[] | select(.brand == "Knightsbridge" and .imageMapping == "knightsbridge-2026-exact-product")] | length' ews-products.json)" = "3153"
+          rm knightsbridge-image-map.json
+          rm .github/workflows/apply-knightsbridge-images.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Map Knightsbridge products to exact 2026 images"
+          git push
